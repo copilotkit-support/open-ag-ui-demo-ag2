@@ -78,18 +78,23 @@ export default function OpenStocksCanvas() {
   const [investedAmount, setInvestedAmount] = useState(0)
 
   const { state, setState } = useCoAgent({
-    name: "langgraphAgent",
+    name: "ag2Agent",
     initialState: {
       available_cash: totalCash,
       investment_summary: {} as any,
-      investment_portfolio: [] as InvestmentPortfolio[]
+      investment_portfolio: [] as InvestmentPortfolio[],
+      investment_date: ''
     }
   })
 
   useCoAgentStateRender({
-    name: "langgraphAgent",
+    name: "ag2Agent",
     render: ({state}) => <ToolLogs logs={state.tool_logs} />
   })
+  
+  // useEffect(() => {
+  //   console.log(state, "state")
+  // }, [state])
 
   useCopilotAction({
     name: "render_standard_charts_and_table",
@@ -148,6 +153,8 @@ export default function OpenStocksCanvas() {
                     )
                     setState({
                       ...state,
+                      investment_portfolio: JSON.parse(args?.investment_portfolio),
+                      investment_date: args?.investment_date,
                       available_cash: totalCash,
                     })
                     respond("Data rendered successfully. Provide summary of the investments by not making any tool calls")

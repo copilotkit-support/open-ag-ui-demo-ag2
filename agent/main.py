@@ -22,6 +22,14 @@ from ag_ui.core import (
 from ag_ui.encoder import EventEncoder
 from stock_analysis import agent_graph
 from copilotkit import CopilotKitState
+from autogen.agentchat import a_initiate_group_chat, initiate_group_chat
+from autogen.agentchat.group.patterns import DefaultPattern
+from agent.stock_analysis import chat_bot, cash_allocation_bot, stock_data_bot, insights_bot
+from autogen.agentchat.group import ContextVariables
+from openai import OpenAI
+from dotenv import load_dotenv
+import json
+load_dotenv()
 
 app = FastAPI()
 
@@ -40,8 +48,8 @@ class AgentState(CopilotKitState):
     investment_summary : dict
     tool_logs : list
 
-@app.post("/langgraph-agent")
-async def langgraph_agent(input_data: RunAgentInput):
+@app.post("/ag2-agent")
+async def ag2_agent(input_data: RunAgentInput):
     try:
 
         async def event_generator():
@@ -50,7 +58,8 @@ async def langgraph_agent(input_data: RunAgentInput):
 
             def emit_event(event):
                 event_queue.put_nowait(event)
-
+            def sample_function(numb : int):
+                print(numb)
             message_id = str(uuid.uuid4())
 
             yield encoder.encode(
@@ -68,35 +77,112 @@ async def langgraph_agent(input_data: RunAgentInput):
                         "available_cash": input_data.state["available_cash"],
                         "investment_summary" : input_data.state["investment_summary"],
                         "investment_portfolio" : input_data.state["investment_portfolio"],
+                        "investment_date" : input_data.state["investment_date"],
                         "tool_logs" : []
                     }
                 )
-            )
-            state = AgentState(
-                tools=input_data.tools,
-                messages=input_data.messages,
-                be_stock_data=None,
-                be_arguments=None,
-                available_cash=input_data.state["available_cash"],
-                investment_portfolio=input_data.state["investment_portfolio"],
-                tool_logs=[]
-            )
-            agent = await agent_graph()
+            )       
 
-            agent_task = asyncio.create_task(
-                agent.ainvoke(
-                    state, config={"emit_event": emit_event, "message_id": message_id}
-                )
+            shared_context = ContextVariables(
+                data={"tool_logs": [], "messages": input_data.messages, "emitEvent": emit_event, "available_cash": input_data.state["available_cash"], "investment_portfolio" : {}, "be_arguments" : {}, "sample_function": sample_function}
             )
-            while True:
+            
+            pattern = DefaultPattern(
+                initial_agent=chat_bot,
+                agents=[chat_bot,stock_data_bot,cash_allocation_bot, insights_bot],
+                # group_manager_args={"emit_event": emit_event},
+                context_variables=shared_context
+            )
+
+            if input_data.messages[-1].role == "user":
                 try:
-                    event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
-                    yield encoder.encode(event)
-                except asyncio.TimeoutError:
-                    # Check if the agent is done
-                    if agent_task.done():
-                        break
+                    tool_log_id = str(uuid.uuid4())
+                    yield encoder.encode(
+                        StateDeltaEvent(
+                            type=EventType.STATE_DELTA,
+                            delta=[
+                                {
+                                    "op": "add",
+                                    "path": "/tool_logs/-",
+                                    "value": {
+                                        "message": "Analyzing user query",
+                                        "status": "processing",
+                                        "id": tool_log_id,
+                                    },
+                                }
+                            ],
+                        )
+                    )
+                    agent_task = asyncio.create_task(
+                        a_initiate_group_chat(
+                            pattern=pattern,
+                            messages=input_data.messages[-1].content + " PORTFOLIO DETAILS : " + json.dumps(input_data.state['investment_portfolio']) + ". INVESTMENT DATE : " + input_data.state['investment_date'],
+                        )
+                    )
+                    while True:
+                        try:
+                            event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                            yield encoder.encode(event)
+                        except asyncio.TimeoutError:
+                            # Check if the agent is done
+                            if agent_task.done():
+                                break
+                except Exception as e:
+                    print(e) 
+                # agent_task = initiate_group_chat(
+                #     pattern=pattern,
+                #     messages=input_data.messages[-1].content + " PORTFOLIO DETAILS : " + json.dumps(input_data.state['investment_portfolio']) + ". INVESTMENT DATE : " + input_data.state['investment_date'],
+                # )
+            else:
+                model = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                response = model.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=input_data.messages
+                )
+                yield encoder.encode(
+                    TextMessageStartEvent(
+                        type=EventType.TEXT_MESSAGE_START,
+                        message_id=message_id,
+                        role="assistant",
+                    )
+                )
 
+                # Only send content event if content is not empty
+                if response.choices[0].message.content:
+                    content = response.choices[0].message.content
+                    # Split content into 100 parts
+                    n_parts = 100
+                    part_length = max(1, len(content) // n_parts)
+                    parts = [content[i:i+part_length] for i in range(0, len(content), part_length)]
+                    # If splitting results in more than 5 due to rounding, merge last parts
+                    if len(parts) > n_parts:
+                        parts = parts[:n_parts-1] + [''.join(parts[n_parts-1:])]
+                    for part in parts:
+                        yield encoder.encode(
+                            TextMessageContentEvent(
+                                type=EventType.TEXT_MESSAGE_CONTENT,
+                                message_id=message_id,
+                                delta=part,
+                            )
+                        )
+                        await asyncio.sleep(0.05)
+                else:
+                    yield encoder.encode(
+                        TextMessageContentEvent(
+                            type=EventType.TEXT_MESSAGE_CONTENT,
+                            message_id=message_id,
+                            delta="Something went wrong! Please try again.",
+                        )
+                    )
+                
+                yield encoder.encode(
+                    TextMessageEndEvent(
+                        type=EventType.TEXT_MESSAGE_END,
+                        message_id=message_id,
+                    )
+                )
+            
+            
             yield encoder.encode(
             StateDeltaEvent(
                 type=EventType.STATE_DELTA,
@@ -109,35 +195,36 @@ async def langgraph_agent(input_data: RunAgentInput):
                 ]
             )
             )
-            if state["messages"][-1].role == "assistant":
-                if state["messages"][-1].tool_calls:
-                    # for tool_call in state['messages'][-1].tool_calls:
-                    yield encoder.encode(
-                        ToolCallStartEvent(
-                            type=EventType.TOOL_CALL_START,
-                            tool_call_id=state["messages"][-1].tool_calls[0].id,
-                            toolCallName=state["messages"][-1]
-                            .tool_calls[0]
-                            .function.name,
+            if input_data.messages[-1].role == "user":
+                if agent_task.result()[1].data['messages'][-1].role != 'user':
+                    if agent_task.result()[1].data['messages'][-1].tool_calls:
+                        # for tool_call in state['messages'][-1].tool_calls:
+                        yield encoder.encode(
+                            ToolCallStartEvent(
+                                type=EventType.TOOL_CALL_START,
+                                tool_call_id=agent_task.result()[1].data['messages'][-1].tool_calls[0].id,
+                                toolCallName=agent_task.result()[1].data['messages'][-1]
+                                .tool_calls[0]
+                                .function.name,
+                            )
                         )
-                    )
 
-                    yield encoder.encode(
-                        ToolCallArgsEvent(
-                            type=EventType.TOOL_CALL_ARGS,
-                            tool_call_id=state["messages"][-1].tool_calls[0].id,
-                            delta=state["messages"][-1]
-                            .tool_calls[0]
-                            .function.arguments,
+                        yield encoder.encode(
+                            ToolCallArgsEvent(
+                                type=EventType.TOOL_CALL_ARGS,
+                                tool_call_id=agent_task.result()[1].data['messages'][-1].tool_calls[0].id,
+                                delta=agent_task.result()[1].data['messages'][-1]
+                                .tool_calls[0]
+                                .function.arguments,
+                            )
                         )
-                    )
 
-                    yield encoder.encode(
-                        ToolCallEndEvent(
-                            type=EventType.TOOL_CALL_END,
-                            tool_call_id=state["messages"][-1].tool_calls[0].id,
+                        yield encoder.encode(
+                            ToolCallEndEvent(
+                                type=EventType.TOOL_CALL_END,
+                                tool_call_id=agent_task.result()[1].data['messages'][-1].tool_calls[0].id,
+                            )
                         )
-                    )
                 else:
                     yield encoder.encode(
                         TextMessageStartEvent(
@@ -148,8 +235,8 @@ async def langgraph_agent(input_data: RunAgentInput):
                     )
 
                     # Only send content event if content is not empty
-                    if state["messages"][-1].content:
-                        content = state["messages"][-1].content
+                    if agent_task.result()[0].chat_history[-1]['content']:
+                        content = agent_task.result()[0].chat_history[-1]['content']
                         # Split content into 100 parts
                         n_parts = 100
                         part_length = max(1, len(content) // n_parts)
@@ -181,7 +268,6 @@ async def langgraph_agent(input_data: RunAgentInput):
                             message_id=message_id,
                         )
                     )
-
             yield encoder.encode(
                 RunFinishedEvent(
                     type=EventType.RUN_FINISHED,

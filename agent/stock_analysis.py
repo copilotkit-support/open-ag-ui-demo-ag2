@@ -1,299 +1,77 @@
-from langchain_core.runnables import RunnableConfig
 from ag_ui.core import StateDeltaEvent, EventType
-from langchain_core.messages import SystemMessage, AIMessage, ToolMessage, HumanMessage
-from ag_ui.core.types import AssistantMessage, ToolMessage as ToolMessageAGUI
-from langchain_core.tools import tool
-from langgraph.graph import StateGraph, START, END
-from langgraph.types import Command
+from ag_ui.core.types import AssistantMessage
 import yfinance as yf
-from copilotkit import CopilotKitState
-from langchain.chat_models import init_chat_model
 from dotenv import load_dotenv
 import json
-import pandas as pd
 import asyncio
-from prompts import system_prompt, insights_prompt
 from datetime import datetime
-from typing import Any
 import uuid
+from pydantic import BaseModel, Field
+from autogen import ConversableAgent, LLMConfig
+from autogen.agentchat.group import (
+    AgentNameTarget,
+    ReplyResult,
+    ContextVariables
+)
+import os
+import numpy as np
+import pandas as pd
+from typing import List
 
 load_dotenv()
 
+# Configure the LLM
+llm_config = LLMConfig(
+    api_type="openai",
+    model="gpt-4o-mini",
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    temperature=0.2,
+)
 
-class AgentState(CopilotKitState):
-    """
-    This is the state of the agent.
-    It is a subclass of the MessagesState class from langgraph.
-    """
-
-    tools: list
-    messages: list
-    be_stock_data: Any
-    be_arguments: dict
-    available_cash: int
-    investment_summary: dict
-    investment_portfolio: list
-    tool_logs: list
+class Insight(BaseModel):
+    title: str = Field(..., description="Short title for the insight.")
+    description: str = Field(..., description="Detailed description of the insight.")
+    emoji: str = Field(..., description="Emoji representing the insight.")
 
 
-def convert_tool_call(tc):
-    return {
-        "id": tc.get("id"),
-        "type": "function",
-        "function": {
-            "name": tc.get("name"),
-            "arguments": json.dumps(tc.get("args", {})),
-        },
-    }
+class GenerateInsightsParameters(BaseModel):
+    bullInsights: List[Insight] = Field(..., description="A list of positive insights (bull case).")
+    bearInsights: List[Insight] = Field(..., description="A list of negative insights (bear case).")
 
-
-def convert_tool_call_for_model(tc):
-    return {
-        "id": tc.id,
-        "name": tc.function.name,
-        "args": json.loads(tc.function.arguments),
-    }
-
-
-extract_relevant_data_from_user_prompt = {
-    "name": "extract_relevant_data_from_user_prompt",
-    "description": "Gets the data like ticker symbols, amount of dollars to be invested, interval of investment.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "ticker_symbols": {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                    "description": "A stock ticker symbol, e.g. 'AAPL', 'GOOGL'.",
-                },
-                "description": "A list of stock ticker symbols, e.g. ['AAPL', 'GOOGL'].",
-            },
-            "investment_date": {
-                "type": "string",
-                "description": "The date of investment, e.g. '2023-01-01'.",
-            },
-            "amount_of_dollars_to_be_invested": {
-                "type": "array",
-                "items": {
-                    "type": "number",
-                    "description": "The amount of dollars to be invested, e.g. 10000.",
-                },
-                "description": "The amount of dollars to be invested, e.g. [10000, 20000, 30000].",
-            },
-            "interval_of_investment": {
-                "type": "string",
-                "description": "The interval of investment, e.g. '1d', '5d', '1mo', '3mo', '6mo', '1y'1d', '5d', '7d', '1mo', '3mo', '6mo', '1y', '2y', '3y', '4y', '5y'. If the user did not specify the interval, then assume it as 'single_shot'",
-            },
-            "to_be_added_in_portfolio": {
-                "type": "boolean",
-                "description": "If user wants to add it in the current portfolio, then set it to true. If user wants to add it in the sandbox portfolio, then set it to false.",
-            },
-        },
-        "required": [
-            "ticker_symbols",
-            "investment_date",
-            "amount_of_dollars_to_be_invested",
-            "to_be_added_in_portfolio",
-        ],
-    },
-}
-
-
-generate_insights = {
-    "name": "generate_insights",
-    "description": "Generate positive (bull) and negative (bear) insights for a stock or portfolio.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "bullInsights": {
-                "type": "array",
-                "description": "A list of positive insights (bull case) for the stock or portfolio.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": {
-                            "type": "string",
-                            "description": "Short title for the positive insight.",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Detailed description of the positive insight.",
-                        },
-                        "emoji": {
-                            "type": "string",
-                            "description": "Emoji representing the positive insight.",
-                        },
-                    },
-                    "required": ["title", "description", "emoji"],
-                },
-            },
-            "bearInsights": {
-                "type": "array",
-                "description": "A list of negative insights (bear case) for the stock or portfolio.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": {
-                            "type": "string",
-                            "description": "Short title for the negative insight.",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Detailed description of the negative insight.",
-                        },
-                        "emoji": {
-                            "type": "string",
-                            "description": "Emoji representing the negative insight.",
-                        },
-                    },
-                    "required": ["title", "description", "emoji"],
-                },
-            },
-        },
-        "required": ["bullInsights", "bearInsights"],
-    },
-}
-
-
-async def chat_node(state: AgentState, config: RunnableConfig):
-    try:
-        tool_log_id = str(uuid.uuid4())
-        state["tool_logs"].append(
+async def extract_relevant_data_from_user_prompt(
+    context_variables: ContextVariables,
+    ticker_symbols: list[str],
+    investment_date: str,
+    amount_of_dollars_to_be_invested: list[int],
+    to_be_added_in_portfolio: bool,
+):
+    tool_log_id = str(uuid.uuid4())
+    context_variables.data["sample_function"](10)
+    context_variables.data["tool_logs"].append(
+        {
+            "id": tool_log_id,
+            "message": "Analyzing user query",
+            "status": "processing",
+        }
+    )
+    context_variables.data["investment_portfolio"] = json.dumps(
+        [
             {
-                "id": tool_log_id,
-                "message": "Analyzing user query",
-                "status": "processing",
+                "ticker": ticker,
+                "amount": amount_of_dollars_to_be_invested[index],
             }
-        )
-        config.get("configurable").get("emit_event")(
-            StateDeltaEvent(
-                type=EventType.STATE_DELTA,
-                delta=[
-                    {
-                        "op": "add",
-                        "path": "/tool_logs/-",
-                        "value": {
-                            "message": "Analyzing user query",
-                            "status": "processing",
-                            "id": tool_log_id,
-                        },
-                    }
-                ],
-            )
-        )
-        await asyncio.sleep(0)
-        model = init_chat_model("gemini-2.5-pro", model_provider="google_genai")
-        # tools = [t.dict() for t in state["tools"]]
-        messages = []
-        for message in state["messages"]:
-            match message.role:
-                case "user":
-                    messages.append(HumanMessage(content=message.content))
-                case "system":
-                    messages.append(
-                        SystemMessage(
-                            content=system_prompt.replace(
-                                "{PORTFOLIO_DATA_PLACEHOLDER}",
-                                json.dumps(state["investment_portfolio"]),
-                            )
-                        )
-                    )
-                case "assistant" | "ai":
-                    tool_calls_converted = [
-                        convert_tool_call_for_model(tc)
-                        for tc in message.tool_calls or []
-                    ]
-                    messages.append(
-                        AIMessage(
-                            invalid_tool_calls=[],
-                            tool_calls=tool_calls_converted,
-                            type="ai",
-                            content=message.content or "",
-                        )
-                    )
-                case "tool":
-                    # ToolMessage may require additional fields, adjust as needed
-                    messages.append(
-                        ToolMessage(
-                            tool_call_id=message.tool_call_id, content=message.content
-                        )
-                    )
-                case _:
-                    raise ValueError(f"Unsupported message role: {message.role}")
-
-        retry_counter = 0
-        while True:
-            if retry_counter > 3:
-                print("retry_counter", retry_counter)
-                break
-
-            if messages[-1].type == "human":
-                response = await model.bind_tools(
-                    [extract_relevant_data_from_user_prompt]
-                ).ainvoke(messages, config=config)
-            else:
-                response = await model.ainvoke(messages, config=config)
-
-            # async for chunk in response:
-            #     print(chunk)
-            if response.tool_calls:
-                tool_calls = [convert_tool_call(tc) for tc in response.tool_calls]
-                a_message = AssistantMessage(
-                    role="assistant", tool_calls=tool_calls, id=response.id
-                )
-                state["messages"].append(a_message)
-                index = len(state["tool_logs"]) - 1
-                config.get("configurable").get("emit_event")(
-                    StateDeltaEvent(
-                        type=EventType.STATE_DELTA,
-                        delta=[
-                            {
-                                "op": "replace",
-                                "path": f"/tool_logs/{index}/status",
-                                "value": "completed",
-                            }
-                        ],
-                    )
-                )
-                await asyncio.sleep(0)
-                return
-            elif response.content == "" and response.tool_calls == []:
-                retry_counter += 1
-            else:
-                a_message = AssistantMessage(
-                    id=response.id, content=response.content, role="assistant"
-                )
-                state["messages"].append(a_message)
-                index = len(state["tool_logs"]) - 1
-                config.get("configurable").get("emit_event")(
-                    StateDeltaEvent(
-                        type=EventType.STATE_DELTA,
-                        delta=[
-                            {
-                                "op": "replace",
-                                "path": f"/tool_logs/{index}/status",
-                                "value": "completed",
-                            }
-                        ],
-                    )
-                )
-                await asyncio.sleep(0)
-                return
-        print("hello")
-        a_message = AssistantMessage(
-            id=response.id, content=response.content, role="assistant"
-        )
-        state["messages"].append(a_message)
-    except Exception as e:
-        print(e)
-        a_message = AssistantMessage(id=response.id, content="", role="assistant")
-        state["messages"].append(a_message)
-        return Command(
-            goto="end",
-        )
-    index = len(state["tool_logs"]) - 1
-    config.get("configurable").get("emit_event")(
+            for index, ticker in enumerate(ticker_symbols)
+        ]
+    )
+    context_variables.data["be_arguments"] = {
+        "ticker_symbols": ticker_symbols,
+        "investment_date": investment_date,
+        "amount_of_dollars_to_be_invested": amount_of_dollars_to_be_invested,
+        "to_be_added_in_portfolio": to_be_added_in_portfolio,
+    }
+    # print(context_variables)
+    index = len(context_variables.data["tool_logs"]) - 1
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -306,20 +84,14 @@ async def chat_node(state: AgentState, config: RunnableConfig):
         )
     )
     await asyncio.sleep(0)
-    return
-
-
-async def end_node(state: AgentState, config: RunnableConfig):
-    print("inside end node")
-
-
-async def simulation_node(state: AgentState, config: RunnableConfig):
-    print("inside simulation node")
-    tool_log_id = str(uuid.uuid4())
-    state["tool_logs"].append(
-        {"id": tool_log_id, "message": "Gathering stock data", "status": "processing"}
+    context_variables.data["tool_logs"].append(
+        {
+            "id": tool_log_id,
+            "message": "Gathering stock data",
+            "status": "processing",
+        }
     )
-    config.get("configurable").get("emit_event")(
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -334,34 +106,18 @@ async def simulation_node(state: AgentState, config: RunnableConfig):
                 }
             ],
         )
-    )
+    )    
     await asyncio.sleep(0)
-    arguments = json.loads(state["messages"][-1].tool_calls[0].function.arguments)
-    print("arguments", arguments)
-    state["investment_portfolio"] = json.dumps(
-        [
-            {
-                "ticker": ticker,
-                "amount": arguments["amount_of_dollars_to_be_invested"][index],
-            }
-            for index, ticker in enumerate(arguments["ticker_symbols"])
-        ]
+    return ReplyResult(
+        message="User's query has been processed and relevant data has been extracted",
+        context_variables=context_variables,
+        target=AgentNameTarget("stock_data_bot"),
     )
-    config.get("configurable").get("emit_event")(
-        StateDeltaEvent(
-            type=EventType.STATE_DELTA,
-            delta=[
-                {
-                    "op": "replace",
-                    "path": f"/investment_portfolio",
-                    "value": json.loads(state["investment_portfolio"]),
-                }
-            ],
-        )
-    )
-    await asyncio.sleep(2)
-    tickers = arguments["ticker_symbols"]
-    investment_date = arguments["investment_date"]
+
+async def gather_stock_data(context_variables: ContextVariables):
+    tool_log_id = str(uuid.uuid4())
+    tickers = context_variables.data['be_arguments']["ticker_symbols"]
+    investment_date = context_variables.data['be_arguments']["investment_date"]
     current_year = datetime.now().year
     if current_year - int(investment_date[:4]) > 4:
         print("investment date is more than 4 years ago")
@@ -378,11 +134,10 @@ async def simulation_node(state: AgentState, config: RunnableConfig):
         start=investment_date,
         end=datetime.today().strftime("%Y-%m-%d"),
     )
-    state["be_stock_data"] = data["Close"]
-    state["be_arguments"] = arguments
-    print(state["be_stock_data"])
-    index = len(state["tool_logs"]) - 1
-    config.get("configurable").get("emit_event")(
+    context_variables.data["be_stock_data"] = data["Close"]
+    # print(context_variables.data,"HERERERERER")
+    index = len(context_variables.data["tool_logs"]) - 1
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -395,16 +150,14 @@ async def simulation_node(state: AgentState, config: RunnableConfig):
         )
     )
     await asyncio.sleep(0)
-    return Command(goto="cash_allocation", update=state)
-
-
-async def cash_allocation_node(state: AgentState, config: RunnableConfig):
-    print("inside cash allocation node")
-    tool_log_id = str(uuid.uuid4())
-    state["tool_logs"].append(
-        {"id": tool_log_id, "message": "Allocating cash", "status": "processing"}
+    context_variables.data["tool_logs"].append(
+        {
+            "id": tool_log_id,
+            "message": "Allocating cash",
+            "status": "processing",
+        }
     )
-    config.get("configurable").get("emit_event")(
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -419,23 +172,25 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
                 }
             ],
         )
+    )    
+    await asyncio.sleep(0)
+    return ReplyResult(
+        message="Stock data had been gathered successfully",
+        context_variables=context_variables,
+        target= AgentNameTarget('cash_allocation_bot')
     )
-    await asyncio.sleep(2)
-    import numpy as np
-    import pandas as pd
 
-    # from ag_ui.core.types import AssistantMessage,ToolMessage
-
-    stock_data = state["be_stock_data"]  # DataFrame: index=date, columns=tickers
-    args = state["be_arguments"]
+async def allocate_cash(context_variables : ContextVariables):
+    stock_data = context_variables.data["be_stock_data"]  # DataFrame: index=date, columns=tickers
+    args = context_variables.data["be_arguments"]
     tickers = args["ticker_symbols"]
     investment_date = args["investment_date"]
     amounts = args["amount_of_dollars_to_be_invested"]  # list, one per ticker
     interval = args.get("interval_of_investment", "single_shot")
 
     # Use state['available_cash'] as a single integer (total wallet cash)
-    if "available_cash" in state and state["available_cash"] is not None:
-        total_cash = state["available_cash"]
+    if context_variables.data['available_cash']:
+        total_cash = context_variables.data["available_cash"]
     else:
         total_cash = sum(amounts)
     holdings = {ticker: 0.0 for ticker in tickers}
@@ -558,7 +313,7 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
     total_value += total_cash  # Add remaining cash to total value
 
     # Store results in state
-    state["investment_summary"] = {
+    context_variables.data["investment_summary"] = {
         "holdings": holdings,
         "final_prices": final_prices.to_dict(),
         "cash": total_cash,
@@ -571,7 +326,7 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
         "percent_allocation_per_stock": percent_allocation_per_stock,
         "percent_return_per_stock": percent_return_per_stock,
     }
-    state["available_cash"] = total_cash  # Update available cash in state
+    context_variables.data["available_cash"] = total_cash  # Update available cash in state
 
     # --- Portfolio vs SPY performanceData logic ---
     # Get SPY prices for the same dates
@@ -652,7 +407,7 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
             }
         )
 
-    state["investment_summary"]["performanceData"] = performanceData
+    context_variables.data["investment_summary"]["performanceData"] = performanceData
     # --- End performanceData logic ---
 
     # Compose summary message
@@ -671,16 +426,16 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
         abs_return = returns[ticker]
         msg += f"{ticker}: {percent:.2f}% (${abs_return:.2f})\n"
 
-    state["messages"].append(
-        ToolMessageAGUI(
-            role="tool",
-            id=str(uuid.uuid4()),
-            content="The relevant details had been extracted",
-            tool_call_id=state["messages"][-1].tool_calls[0].id,
-        )
-    )
+    # context_variables.data["messages"].append(
+    #     ToolMessage(
+    #         role="tool",
+    #         id=str(uuid.uuid4()),
+    #         content="The relevant details had been extracted",
+    #         tool_call_id=context_variables.data["messages"][-1].tool_calls[0].id,
+    #     )
+    # )
 
-    state["messages"].append(
+    context_variables.data["messages"].append(
         AssistantMessage(
             role="assistant",
             tool_calls=[
@@ -690,7 +445,7 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
                     "function": {
                         "name": "render_standard_charts_and_table",
                         "arguments": json.dumps(
-                            {"investment_summary": state["investment_summary"]}
+                            {"investment_summary": context_variables.data["investment_summary"]}
                         ),
                     },
                 }
@@ -698,8 +453,9 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
             id=str(uuid.uuid4()),
         )
     )
-    index = len(state["tool_logs"]) - 1
-    config.get("configurable").get("emit_event")(
+    print(context_variables.data, "datatatat")
+    index = len(context_variables.data["tool_logs"]) - 1
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -712,20 +468,15 @@ async def cash_allocation_node(state: AgentState, config: RunnableConfig):
         )
     )
     await asyncio.sleep(0)
-    return Command(goto="ui_decision", update=state)
-
-
-async def insights_node(state: AgentState, config: RunnableConfig):
-    print("inside insights node")
     tool_log_id = str(uuid.uuid4())
-    state["tool_logs"].append(
+    context_variables.data["tool_logs"].append(
         {
             "id": tool_log_id,
-            "message": "Extracting key insights",
+            "message": "Generating insights",
             "status": "processing",
         }
     )
-    config.get("configurable").get("emit_event")(
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -733,38 +484,40 @@ async def insights_node(state: AgentState, config: RunnableConfig):
                     "op": "add",
                     "path": "/tool_logs/-",
                     "value": {
-                        "message": "Extracting key insights",
+                        "message": "Generating insights",
                         "status": "processing",
                         "id": tool_log_id,
                     },
                 }
             ],
         )
-    )
+    )    
     await asyncio.sleep(0)
-    args = state.get("be_arguments") or state.get("arguments")
-    tickers = args.get("ticker_symbols", [])
-
-    model = init_chat_model("gemini-2.5-pro", model_provider="google_genai")
-    response = await model.bind_tools(generate_insights).ainvoke(
-        [
-            {"role": "system", "content": insights_prompt},
-            {"role": "user", "content": tickers},
-        ],
-        config=config,
+    return ReplyResult(
+        message="Cash had been allocated successfully and returns had been calculated",
+        context_variables=context_variables,
+        target=AgentNameTarget("insights_bot")
     )
-    if response.tool_calls:
-        args_dict = json.loads(state["messages"][-1].tool_calls[0].function.arguments)
 
-        # Step 2: Add the insights key
-        args_dict["insights"] = response.tool_calls[0]["args"]
 
-        # Step 3: Convert back to string
-        state["messages"][-1].tool_calls[0].function.arguments = json.dumps(args_dict)
-    else:
-        state["insights"] = {}
-    index = len(state["tool_logs"]) - 1
-    config.get("configurable").get("emit_event")(
+async def generate_insights(context_variables: ContextVariables, insights: GenerateInsightsParameters):
+    args = context_variables.data["be_arguments"]
+    investment_date = args.get("investment_date", '')
+
+    args_dict = json.loads(context_variables.data["messages"][-1].tool_calls[0].function.arguments)
+
+    # Step 2: Add the insights key
+    args_dict["insights"] = {
+        "bullInsights": insights.model_dump()['bullInsights'],
+        "bearInsights": insights.model_dump()['bearInsights']
+    }
+    args_dict["investment_portfolio"] = context_variables.data["investment_portfolio"]
+    args_dict["investment_date"] = investment_date
+    # Step 3: Convert back to string
+    context_variables.data["messages"][-1].tool_calls[0].function.arguments = json.dumps(args_dict)
+    print(context_variables.data, "insights")
+    index = len(context_variables.data["tool_logs"]) - 1
+    context_variables.data.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -777,36 +530,66 @@ async def insights_node(state: AgentState, config: RunnableConfig):
         )
     )
     await asyncio.sleep(0)
-    return Command(goto="end", update=state)
+    return ReplyResult(
+        message="The Insights for the stocks had been generated successfully",
+        context_variables=context_variables
+    )
 
+with llm_config:
+    chat_bot = ConversableAgent(
+        name="chat_bot",
+        system_message="""You are the chat processing agent in this pipeline.
 
-def router_function1(state: AgentState, config: RunnableConfig):
-    if (
-        state["messages"][-1].tool_calls == []
-        or state["messages"][-1].tool_calls is None
-    ):
-        return "end"
-    else:
-        return "simulation"
+        Your specific role is to process the user's query for his Investment stock portfolio.
+        Focus on:
+        - Investment tickers array. 
+        - If dates are not provided, Take the investment date as 2022-01-01 as default.
 
+        You must always use the extract_relevant_data_from_user_prompt function to extract relevant data from the user query.
+        When using the extract_relevant_data_from_user_prompt function, you must always call it only once with multiple tickers in an array. Strictly follow the example format below:
+        EXAMPLE FORMAT:
+        ticker_symbols = ["AAPL", "MSFT", "GOOG"]
+        investment_date = "2022-01-01"
+        amount_of_dollars_to_be_invested = [10000, 15000, 20000]
+        to_be_added_in_portfolio = True
+        
+        NOTE: 
+        - User will ask you to perform investment queries. Along with that he will provide you with portfolio details. It will contain the various tickers and their amounts. Using this information, you must call the extract_relevant_data_from_user_prompt function to extract the relevant data from the user query along with the portfolio details too.
+        - When user asks "Make investments in Nvidia worth 13k dollars  PORTFOLIO DETAILS : [{"ticker": "AAPL", "amount": 15000}, {"ticker": "MSFT", "amount": 20000}]. INVESTMENT DATE : 2022-01-01", you should call the extract_relevant_data_from_user_prompt function with the following arguments:
+        ticker_symbols = ["AAPL", "MSFT", "NVDA"]
+        investment_date = "2022-01-01"
+        amount_of_dollars_to_be_invested = [10000, 15000, 13000]
+        to_be_added_in_portfolio = True
+        - When user asks "Replace investments of Apple with Nvidia worth 13k dollars  PORTFOLIO DETAILS : [{"ticker": "AAPL", "amount": 15000}, {"ticker": "MSFT", "amount": 20000}]. INVESTMENT DATE : 2022-01-01", you should call the extract_relevant_data_from_user_prompt function with the following arguments:
+        ticker_symbols = ["NVDA", "MSFT"]
+        amount_of_dollars_to_be_invested = [13000, 20000]
+        to_be_added_in_portfolio = False
+        - Understand the user's query and call the extract_relevant_data_from_user_prompt function with the appropriate arguments like above.
+        """,
+        functions=[extract_relevant_data_from_user_prompt],
+    )
+    stock_data_bot = ConversableAgent(
+        name="stock_data_bot",
+        system_message="""You are a Stock data gathering agent in this pipeline.
+        
+        Your specific role is to use the gather_stock_data function to get the relevant stock's data from the external APIs        
+        """,
+        functions = [gather_stock_data]
+    )
+    cash_allocation_bot = ConversableAgent(
+        name= "cash_allocation_bot",
+        system_message="""You are a cash allocation agent in this pipeline.
+        
+        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns.
+        """,
+        functions= [allocate_cash]
+    )
+    insights_bot = ConversableAgent(
+        name="insights_bot",
+        system_message="""You are a insights agent in this pipeline.
+        
+        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the inve.
+        """,
+        functions = [generate_insights]
+    )
 
-async def agent_graph():
-    workflow = StateGraph(AgentState)
-    workflow.add_node("chat", chat_node)
-    workflow.add_node("simulation", simulation_node)
-    workflow.add_node("cash_allocation", cash_allocation_node)
-    workflow.add_node("insights", insights_node)
-    workflow.add_node("end", end_node)
-    workflow.set_entry_point("chat")
-    workflow.set_finish_point("end")
-
-    workflow.add_edge(START, "chat")
-    workflow.add_conditional_edges("chat", router_function1)
-    workflow.add_edge("simulation", "cash_allocation")
-    workflow.add_edge("cash_allocation", "insights")
-    workflow.add_edge("insights", "end")
-    workflow.add_edge("end", END)
-    # from langgraph.checkpoint.memory import MemorySaver
-    # graph = workflow.compile(MemorySaver())
-    graph = workflow.compile()
-    return graph
