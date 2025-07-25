@@ -20,11 +20,10 @@ from ag_ui.core import (
     StateDeltaEvent
 )
 from ag_ui.encoder import EventEncoder
-from stock_analysis import agent_graph
 from copilotkit import CopilotKitState
 from autogen.agentchat import a_initiate_group_chat, initiate_group_chat
 from autogen.agentchat.group.patterns import DefaultPattern
-from agent.stock_analysis import chat_bot, cash_allocation_bot, stock_data_bot, insights_bot
+from stock_analysis import chat_bot, cash_allocation_bot, stock_data_bot, insights_bot
 from autogen.agentchat.group import ContextVariables
 from openai import OpenAI
 from dotenv import load_dotenv

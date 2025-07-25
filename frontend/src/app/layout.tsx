@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "@copilotkit/react-ui/styles.css";
 import { CopilotKit } from "@copilotkit/react-core";
+import { ThemeProvider } from "./components/theme-provider";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -24,13 +26,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <CopilotKit runtimeUrl="/api/copilotkit" agent="ag2Agent">
-          {children}
-        </CopilotKit>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <CopilotKit runtimeUrl="/api/copilotkit" agent="ag2Agent">
+            {children}
+          </CopilotKit>
+        </ThemeProvider>
       </body>
     </html>
   );

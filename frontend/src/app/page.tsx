@@ -274,16 +274,16 @@ export default function OpenStocksCanvas() {
 
 
   return (
-    <div className="h-screen bg-[#FAFCFA] flex overflow-hidden">
+    <div className="h-screen bg-background flex overflow-hidden">
       {/* Left Panel - Prompt Input */}
-      <div className="w-85 border-r border-[#D8D8E5] bg-white flex-shrink-0">
+      <div className="w-85 border-r border-border bg-card flex-shrink-0">
         <PromptPanel availableCash={totalCash} />
       </div>
 
       {/* Center Panel - Generative Canvas */}
       <div className="flex-1 relative min-w-0">
         {/* Top Bar with Cash Info */}
-        <div className="absolute top-0 left-0 right-0 bg-white border-b border-[#D8D8E5] p-4 z-10">
+        <div className="absolute top-0 left-0 right-0 bg-card border-b border-border p-4 z-10">
           <CashPanel
             totalCash={totalCash}
             investedAmount={investedAmount}
@@ -296,7 +296,7 @@ export default function OpenStocksCanvas() {
         {/* <div className="absolute top-4 right-4 z-20">
           <button
             onClick={toggleComponentTree}
-            className="px-3 py-1 text-xs font-semibold text-[#575758] bg-white border border-[#D8D8E5] rounded-md hover:bg-[#F0F0F4] transition-colors"
+            className="px-3 py-1 text-xs font-semibold text-muted-foreground bg-card border border-border rounded-md hover:bg-accent/50 transition-colors"
           >
             {showComponentTree ? "Hide Tree" : "Show Tree"}
           </button>
@@ -309,7 +309,7 @@ export default function OpenStocksCanvas() {
 
       {/* Right Panel - Component Tree (Optional) */}
       {showComponentTree && (
-        <div className="w-64 border-l border-[#D8D8E5] bg-white flex-shrink-0">
+        <div className="w-64 border-l border-border bg-card flex-shrink-0">
           <ComponentTree portfolioState={currentState} />
         </div>
       )}

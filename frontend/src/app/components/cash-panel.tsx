@@ -56,35 +56,35 @@ export function CashPanel({ totalCash, investedAmount, currentPortfolioValue, on
       <div className="flex items-center gap-6">
         {/* Total Cash */}
         <div className="flex items-center gap-2 group">
-          <div className="w-8 h-8 bg-[#86ECE4] rounded-full flex items-center justify-center">
-            <Wallet size={16} className="text-[#030507]" />
+          <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
+            <Wallet size={16} className="text-background" />
           </div>
           <div>
-            <div className="text-xs text-[#575758] font-medium">Total Cash</div>
+            <div className="text-xs text-muted-foreground font-medium">Total Cash</div>
             {isEditing ? (
               <div className="flex items-center gap-1">
                 <input
                   type="text"
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
-                  className="w-12 text-sm font-semibold text-[#030507] font-['Roobert']"
+                  className="w-12 text-sm font-semibold text-foreground font-['Roobert'] bg-transparent"
                   onKeyDown={(e) => e.key === "Enter" && handleSave()}
                 />
-                <button onClick={handleSave} className="p-1 text-[#1B606F] hover:bg-[#86ECE4]/20 rounded">
+                <button onClick={handleSave} className="p-1 text-accent hover:bg-accent/20 rounded">
                   <Check size={12} />
                 </button>
-                <button onClick={handleCancel} className="p-1 text-[#575758] hover:bg-[#F0F0F4] rounded">
+                <button onClick={handleCancel} className="p-1 text-muted-foreground hover:bg-muted rounded">
                   <X size={12} />
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-1">
-                <span className="text-sm font-semibold text-[#030507] font-['Roobert']">
+                <span className="text-sm font-semibold text-foreground font-['Roobert']">
                   {formatCurrency(totalCash)}
                 </span>
                 <button
                   onClick={handleEdit}
-                  className="p-1 text-[#575758] hover:bg-[#F0F0F4] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="p-1 text-muted-foreground hover:bg-muted rounded opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Edit2 size={12} />
                 </button>
@@ -95,12 +95,12 @@ export function CashPanel({ totalCash, investedAmount, currentPortfolioValue, on
 
         {/* Invested Amount */}
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#BEC9FF] rounded-full flex items-center justify-center">
-            <TrendingUp size={16} className="text-[#030507]" />
+          <div className="w-8 h-8 bg-accent/80 rounded-full flex items-center justify-center">
+            <TrendingUp size={16} className="text-background" />
           </div>
           <div>
-            <div className="text-xs text-[#575758] font-medium">Invested</div>
-            <div className="text-sm font-semibold text-[#030507] font-['Roobert']">
+            <div className="text-xs text-muted-foreground font-medium">Invested</div>
+            <div className="text-sm font-semibold text-foreground font-['Roobert']">
               {formatCurrency(investedAmount)}
             </div>
           </div>
@@ -108,12 +108,12 @@ export function CashPanel({ totalCash, investedAmount, currentPortfolioValue, on
 
         {/* Current Portfolio Value */}
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#FFF388] rounded-full flex items-center justify-center">
-            <DollarSign size={16} className="text-[#030507]" />
+          <div className="w-8 h-8 bg-accent/60 rounded-full flex items-center justify-center">
+            <DollarSign size={16} className="text-background" />
           </div>
           <div>
-            <div className="text-xs text-[#575758] font-medium">Portfolio Value</div>
-            <div className="text-sm font-semibold text-[#030507] font-['Roobert']">
+            <div className="text-xs text-muted-foreground font-medium">Portfolio Value</div>
+            <div className="text-sm font-semibold text-foreground font-['Roobert']">
               {formatCurrency(currentPortfolioValue)}
             </div>
           </div>
@@ -123,23 +123,23 @@ export function CashPanel({ totalCash, investedAmount, currentPortfolioValue, on
         <div className="flex items-center gap-2">
           <div
             className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              fourYearReturn >= 0 ? "bg-[#86ECE4]" : "bg-red-100"
+              fourYearReturn >= 0 ? "bg-accent" : "bg-red-500/20"
             }`}
           >
-            <Calendar size={16} className={fourYearReturn >= 0 ? "text-[#030507]" : "text-red-600"} />
+            <Calendar size={16} className={fourYearReturn >= 0 ? "text-background" : "text-red-400"} />
           </div>
           <div>
-            <div className="text-xs text-[#575758] font-medium">4-Year Return</div>
+            <div className="text-xs text-muted-foreground font-medium">4-Year Return</div>
             <div className="flex items-center gap-2">
               <div
                 className={`text-sm font-semibold font-['Roobert'] ${
-                  fourYearReturn >= 0 ? "text-[#1B606F]" : "text-red-600"
+                  fourYearReturn >= 0 ? "text-accent" : "text-red-400"
                 }`}
               >
                 {fourYearReturn >= 0 ? "+" : ""}
                 {formatCurrency(fourYearReturn)}
               </div>
-              <div className={`text-xs font-medium ${fourYearReturn >= 0 ? "text-[#1B606F]" : "text-red-600"}`}>
+              <div className={`text-xs font-medium ${fourYearReturn >= 0 ? "text-accent" : "text-red-400"}`}>
                 ({fourYearReturn >= 0 ? "+" : ""}
                 {fourYearReturnPercentage.toFixed(1)}%)
               </div>
@@ -168,12 +168,12 @@ export function CashPanel({ totalCash, investedAmount, currentPortfolioValue, on
       {/* Investment Progress */}
       <div className="flex items-center gap-3">
         <div className="text-right">
-          <div className="text-xs text-[#575758] font-medium">Portfolio Allocation</div>
-          <div className="text-sm font-semibold text-[#030507] font-['Roobert']">{investedPercentage.toFixed(1)}%</div>
+          <div className="text-xs text-muted-foreground font-medium">Portfolio Allocation</div>
+          <div className="text-sm font-semibold text-foreground font-['Roobert']">{investedPercentage.toFixed(1)}%</div>
         </div>
-        <div className="w-20 h-2 bg-[#E8E8EF] rounded-full overflow-hidden">
+        <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-[#86ECE4] to-[#BEC9FF] transition-all duration-300"
+            className="h-full bg-gradient-to-r from-accent to-accent/80 transition-all duration-300"
             style={{ width: `${Math.min(investedPercentage, 100)}%` }}
           />
         </div>

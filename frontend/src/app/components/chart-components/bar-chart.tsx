@@ -19,14 +19,14 @@ export function BarChartComponent({ data, size = "normal", onClick }: BarChartCo
   const fontSize = size === "small" ? 8 : 10
   const tooltipFontSize = size === "small" ? "9px" : "11px"
   return (
-    <div className={`bg-white border border-[#D8D8E5] rounded-xl ${padding}`}>
+    <div style={{ backgroundColor: "#2a2a2a" }} className={`border border-[#2a2a2a] rounded-xl ${padding}`}>
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E8E8EF" />
-            <XAxis dataKey="ticker" stroke="#575758" fontSize={fontSize} fontFamily="Plus Jakarta Sans" />
+            <XAxis dataKey="ticker" stroke="#CCCCCC" fontSize={fontSize} fontFamily="Plus Jakarta Sans" />
             <YAxis
-              stroke="#575758"
+              stroke="#CCCCCC"
               fontSize={fontSize}
               fontFamily="Plus Jakarta Sans"
               tickFormatter={(value) => `${value}%`}
@@ -48,7 +48,7 @@ export function BarChartComponent({ data, size = "normal", onClick }: BarChartCo
                 // @ts-ignore
                 onClick?.(data.payload.ticker as string)
               }
-            }} dataKey="return" fill="#86ECE4" radius={[2, 2, 0, 0]} />
+            }} dataKey="return" fill="#CCCCCC" radius={[2, 2, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
