@@ -133,10 +133,39 @@ async def ag2_agent(input_data: RunAgentInput):
                 #     messages=input_data.messages[-1].content + " PORTFOLIO DETAILS : " + json.dumps(input_data.state['investment_portfolio']) + ". INVESTMENT DATE : " + input_data.state['investment_date'],
                 # )
             else:
+                tool_log_id = str(uuid.uuid4())
+                yield encoder.encode(
+                    StateDeltaEvent(
+                        type=EventType.STATE_DELTA,
+                        delta=[
+                            {
+                                "op": "add",
+                                "path": "/tool_logs/-",
+                                "value": {
+                                    "message": "Analyzing user query",
+                                    "status": "processing",
+                                    "id": tool_log_id,
+                                },
+                            }
+                        ],
+                    )
+                )
                 model = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                 response = model.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=input_data.messages
+                )
+                yield encoder.encode(
+                    StateDeltaEvent(
+                        type=EventType.STATE_DELTA,
+                        delta=[
+                            {
+                                "op": "replace",
+                                "path": "/tool_logs",
+                                "value": []
+                            }
+                        ]
+                    )
                 )
                 yield encoder.encode(
                     TextMessageStartEvent(
@@ -145,7 +174,18 @@ async def ag2_agent(input_data: RunAgentInput):
                         role="assistant",
                     )
                 )
-
+                # yield encoder.encode(
+                #     StateDeltaEvent(
+                #         type=EventType.STATE_DELTA,
+                #         delta=[
+                #             {
+                #                 "op": "replace",
+                #                 "path": "/tool_logs/0/status",
+                #                 "value": "completed",
+                #             }
+                #         ],
+                #     )
+                # )
                 # Only send content event if content is not empty
                 if response.choices[0].message.content:
                     content = response.choices[0].message.content
@@ -180,7 +220,7 @@ async def ag2_agent(input_data: RunAgentInput):
                         message_id=message_id,
                     )
                 )
-            
+               
             
             yield encoder.encode(
             StateDeltaEvent(

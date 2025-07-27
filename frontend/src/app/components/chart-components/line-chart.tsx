@@ -24,7 +24,7 @@ export function LineChartComponent({ data, size = "normal" }: LineChartComponent
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%" style={{ backgroundColor: "#2a2a2a" }}>
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#E8E8EF" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#a0a0a0" />
             <XAxis dataKey="date" stroke="#CCCCCC" fontSize={fontSize} fontFamily="Plus Jakarta Sans" />
             <YAxis
               stroke="#CCCCCC"

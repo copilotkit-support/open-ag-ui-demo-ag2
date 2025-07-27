@@ -26,7 +26,7 @@ export function ToolLogs({ logs }: ToolLogsProps) {
             ${
               log.status === "processing"
                 ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
-                : "bg-accent/10 border-accent/20 text-accent"
+                : "bg-green-500/10 border-green-500/20 text-green-400"
             }
           `}
         >
@@ -36,7 +36,7 @@ export function ToolLogs({ logs }: ToolLogsProps) {
               <span className="relative inline-flex rounded-full h-4 w-4 bg-yellow-400"></span>
             </span>
           ) : (
-            <Check size={18} className="text-accent" />
+            <Check className="text-green-400" size={18} />
           )}
           <span className="text-xs font-semibold font-['Plus_Jakarta_Sans']">{log.message}</span>
         </div>

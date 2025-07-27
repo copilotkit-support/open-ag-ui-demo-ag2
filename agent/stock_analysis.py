@@ -13,12 +13,23 @@ from autogen.agentchat.group import (
     ReplyResult,
     ContextVariables
 )
+from prompts import insights_prompt
 import os
 import numpy as np
 import pandas as pd
 from typing import List
+from openai import OpenAI
 
 load_dotenv()
+from dataclasses import dataclass, field
+from typing import List
+
+
+@dataclass
+class Insight:
+    title: str
+    description: str
+    emoji: str
 
 # Configure the LLM
 llm_config = LLMConfig(
@@ -28,15 +39,63 @@ llm_config = LLMConfig(
     temperature=0.2,
 )
 
-class Insight(BaseModel):
-    title: str = Field(..., description="Short title for the insight.")
-    description: str = Field(..., description="Detailed description of the insight.")
-    emoji: str = Field(..., description="Emoji representing the insight.")
-
-
-class GenerateInsightsParameters(BaseModel):
-    bullInsights: List[Insight] = Field(..., description="A list of positive insights (bull case).")
-    bearInsights: List[Insight] = Field(..., description="A list of negative insights (bear case).")
+generate_insights_tool = {
+    "type": "function",
+    "function": {
+        "name": "generate_insights",
+        "description": "Generate positive (bull) and negative (bear) insights for a stock or portfolio.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bullInsights": {
+                    "type": "array",
+                    "description": "A list of positive insights (bull case) for the stock or portfolio.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Short title for the positive insight.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the positive insight.",
+                            },
+                            "emoji": {
+                                "type": "string",
+                                "description": "Emoji representing the positive insight.",
+                            },
+                        },
+                        "required": ["title", "description", "emoji"],
+                    },
+                },
+                "bearInsights": {
+                    "type": "array",
+                    "description": "A list of negative insights (bear case) for the stock or portfolio.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Short title for the negative insight.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the negative insight.",
+                            },
+                            "emoji": {
+                                "type": "string",
+                                "description": "Emoji representing the negative insight.",
+                            },
+                        },
+                        "required": ["title", "description", "emoji"],
+                    },
+                },
+            },
+            "required": ["bullInsights", "bearInsights"],
+        },
+    }
+}
 
 async def extract_relevant_data_from_user_prompt(
     context_variables: ContextVariables,
@@ -117,6 +176,7 @@ async def extract_relevant_data_from_user_prompt(
 async def gather_stock_data(context_variables: ContextVariables):
     tool_log_id = str(uuid.uuid4())
     tickers = context_variables.data['be_arguments']["ticker_symbols"]
+    print ('DEBUG: tickers in gather_stock_data', tickers)
     investment_date = context_variables.data['be_arguments']["investment_date"]
     current_year = datetime.now().year
     if current_year - int(investment_date[:4]) > 4:
@@ -149,7 +209,7 @@ async def gather_stock_data(context_variables: ContextVariables):
             ],
         )
     )
-    await asyncio.sleep(0)
+    await asyncio.sleep(2)
     context_variables.data["tool_logs"].append(
         {
             "id": tool_log_id,
@@ -173,7 +233,7 @@ async def gather_stock_data(context_variables: ContextVariables):
             ],
         )
     )    
-    await asyncio.sleep(0)
+    await asyncio.sleep(2)
     return ReplyResult(
         message="Stock data had been gathered successfully",
         context_variables=context_variables,
@@ -184,6 +244,7 @@ async def allocate_cash(context_variables : ContextVariables):
     stock_data = context_variables.data["be_stock_data"]  # DataFrame: index=date, columns=tickers
     args = context_variables.data["be_arguments"]
     tickers = args["ticker_symbols"]
+    print ('DEBUG: tickers in allocate_cash', tickers)
     investment_date = args["investment_date"]
     amounts = args["amount_of_dollars_to_be_invested"]  # list, one per ticker
     interval = args.get("interval_of_investment", "single_shot")
@@ -500,22 +561,88 @@ async def allocate_cash(context_variables : ContextVariables):
     )
 
 
-async def generate_insights(context_variables: ContextVariables, insights: GenerateInsightsParameters):
+async def generate_insights(context_variables: ContextVariables):
     args = context_variables.data["be_arguments"]
+    print ('DEBUG: tickers in generate_insights', args['ticker_symbols'])
     investment_date = args.get("investment_date", '')
+    model = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    response = model.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[  
+            {"role": "system", "content": insights_prompt},
+            {"role": "user", "content": json.dumps(context_variables.data["be_arguments"]["ticker_symbols"])}
+        ],
+        tools=[{
+    "type": "function",
+    "function": {
+        "name": "generate_insights",
+        "description": "Generate positive (bull) and negative (bear) insights for a stock or portfolio.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bullInsights": {
+                    "type": "array",
+                    "description": "A list of positive insights (bull case) for the stock or portfolio.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Short title for the positive insight.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the positive insight.",
+                            },
+                            "emoji": {
+                                "type": "string",
+                                "description": "Emoji representing the positive insight.",
+                            },
+                        },
+                        "required": ["title", "description", "emoji"],
+                    },
+                },
+                "bearInsights": {
+                    "type": "array",
+                    "description": "A list of negative insights (bear case) for the stock or portfolio.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Short title for the negative insight.",
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the negative insight.",
+                            },
+                            "emoji": {
+                                "type": "string",
+                                "description": "Emoji representing the negative insight.",
+                            },
+                        },
+                        "required": ["title", "description", "emoji"],
+                    },
+                },
+            },
+            "required": ["bullInsights", "bearInsights"],
+        },
+    }
+}]
+    )
 
     args_dict = json.loads(context_variables.data["messages"][-1].tool_calls[0].function.arguments)
 
     # Step 2: Add the insights key
     args_dict["insights"] = {
-        "bullInsights": insights.model_dump()['bullInsights'],
-        "bearInsights": insights.model_dump()['bearInsights']
+        "bullInsights": json.loads(response.choices[0].message.tool_calls[0].function.arguments)['bullInsights'],
+        "bearInsights": json.loads(response.choices[0].message.tool_calls[0].function.arguments)["bearInsights"]
     }
     args_dict["investment_portfolio"] = context_variables.data["investment_portfolio"]
     args_dict["investment_date"] = investment_date
     # Step 3: Convert back to string
     context_variables.data["messages"][-1].tool_calls[0].function.arguments = json.dumps(args_dict)
-    print(context_variables.data, "insights")
+    # print(context_variables.data, "insights")
     index = len(context_variables.data["tool_logs"]) - 1
     context_variables.data.get('emitEvent')(
         StateDeltaEvent(
@@ -565,6 +692,7 @@ with llm_config:
         amount_of_dollars_to_be_invested = [13000, 20000]
         to_be_added_in_portfolio = False
         - Understand the user's query and call the extract_relevant_data_from_user_prompt function with the appropriate arguments like above.
+        - Even though the user has asked for multiple tickers, you must strictly call the extract_relevant_data_from_user_prompt function only once with all the tickers in an array.
         """,
         functions=[extract_relevant_data_from_user_prompt],
     )
@@ -572,7 +700,7 @@ with llm_config:
         name="stock_data_bot",
         system_message="""You are a Stock data gathering agent in this pipeline.
         
-        Your specific role is to use the gather_stock_data function to get the relevant stock's data from the external APIs        
+        Your specific role is to use the gather_stock_data function to get the relevant stock's data from the external APIs. Even though the user has asked for multiple tickers, you must strictly call the gather_stock_data function only once. The context_variables will contain all the necessary information to call the gather_stock_data function.        
         """,
         functions = [gather_stock_data]
     )
@@ -580,7 +708,7 @@ with llm_config:
         name= "cash_allocation_bot",
         system_message="""You are a cash allocation agent in this pipeline.
         
-        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns.
+        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns. Even though the user has asked for multiple tickers, you must strictly call the allocate_cash function only once. The context_variables will contain all the necessary information to call the allocate_cash function.
         """,
         functions= [allocate_cash]
     )
@@ -588,7 +716,7 @@ with llm_config:
         name="insights_bot",
         system_message="""You are a insights agent in this pipeline.
         
-        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the inve.
+        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the context_variables.data['be_arguments']['ticker_symbols']. Generate 2 bull insights and 2 bear insights for each ticker. Even though the user has asked for multiple tickers, you must strictly call the generate_insights function only once. The context_variables will contain all the necessary information to call the generate_insights function.
         """,
         functions = [generate_insights]
     )
