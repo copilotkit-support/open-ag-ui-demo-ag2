@@ -13,11 +13,11 @@ from autogen.agentchat.group import (
     ReplyResult,
     ContextVariables,
 )
-from prompts import insights_prompt
+from prompts import insights_prompt, chat_prompt, stock_prompt, cash_allocation_prompt, insight_prompt
 import os
 import numpy as np
 import pandas as pd
-from typing import List
+from typing import List, Any
 from openai import OpenAI
 
 load_dotenv()
@@ -131,12 +131,6 @@ async def extract_relevant_data_from_user_prompt(
             for index, ticker in enumerate(ticker_symbols)
         ]
     ))
-    # context_variables.data["be_arguments"] = {
-    #     "ticker_symbols": ticker_symbols,
-    #     "investment_date": investment_date,
-    #     "amount_of_dollars_to_be_invested": amount_of_dollars_to_be_invested,
-    #     "to_be_added_in_portfolio": to_be_added_in_portfolio,
-    # }
     # print(context_variables)
     index = len(context_variables.get('tool_logs')) - 1
     context_variables.get('emitEvent')(
@@ -674,59 +668,22 @@ async def generate_insights(context_variables: ContextVariables, tickers : list[
 with llm_config:
     chat_bot = ConversableAgent(
         name="chat_bot",
-        system_message="""You are the chat processing agent in this pipeline.
-
-        Your specific role is to process the user's query for his Investment stock portfolio.
-        Focus on:
-        - Investment tickers array. 
-        - If dates are not provided, Take the investment date as 2022-01-01 as default.
-
-        You must always use the extract_relevant_data_from_user_prompt function to extract relevant data from the user query.
-        When using the extract_relevant_data_from_user_prompt function, you must always call it only once with multiple tickers in an array. Strictly follow the example format below:
-        EXAMPLE FORMAT:
-        ticker_symbols = ["AAPL", "MSFT", "GOOG"]
-        investment_date = "2022-01-01"
-        amount_of_dollars_to_be_invested = [10000, 15000, 20000]
-        to_be_added_in_portfolio = True
-        
-        NOTE: 
-        - User will ask you to perform investment queries. Along with that he will provide you with portfolio details. It will contain the various tickers and their amounts. Using this information, you must call the extract_relevant_data_from_user_prompt function to extract the relevant data from the user query along with the portfolio details too.
-        - When user asks "Make investments in Nvidia worth 13k dollars  PORTFOLIO DETAILS : [{"ticker": "AAPL", "amount": 15000}, {"ticker": "MSFT", "amount": 20000}]. INVESTMENT DATE : 2022-01-01", you should call the extract_relevant_data_from_user_prompt function with the following arguments:
-        ticker_symbols = ["AAPL", "MSFT", "NVDA"]
-        investment_date = "2022-01-01"
-        amount_of_dollars_to_be_invested = [10000, 15000, 13000]
-        to_be_added_in_portfolio = True
-        - When user asks "Replace investments of Apple with Nvidia worth 13k dollars  PORTFOLIO DETAILS : [{"ticker": "AAPL", "amount": 15000}, {"ticker": "MSFT", "amount": 20000}]. INVESTMENT DATE : 2022-01-01", you should call the extract_relevant_data_from_user_prompt function with the following arguments:
-        ticker_symbols = ["NVDA", "MSFT"]
-        amount_of_dollars_to_be_invested = [13000, 20000]
-        to_be_added_in_portfolio = False
-        - Understand the user's query and call the extract_relevant_data_from_user_prompt function with the appropriate arguments like above.
-        - Even though the user has asked for multiple tickers, you must strictly call the extract_relevant_data_from_user_prompt function only once with all the tickers in an array.
-        """,
+        system_message= chat_prompt,
         functions=[extract_relevant_data_from_user_prompt],
     )
     stock_data_bot = ConversableAgent(
         name="stock_data_bot",
-        system_message="""You are a Stock data gathering agent in this pipeline.
-        
-        Your specific role is to use the gather_stock_data function to get the relevant stock's data from the external APIs. Even though the user has asked for multiple tickers, you must strictly call the gather_stock_data function only once. The context_variables will contain all the necessary information to call the gather_stock_data function.        
-        """,
+        system_message= stock_prompt,
         functions = [gather_stock_data]
     )
     cash_allocation_bot = ConversableAgent(
         name= "cash_allocation_bot",
-        system_message="""You are a cash allocation agent in this pipeline.
-        
-        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns. Even though the user has asked for multiple tickers, you must strictly call the allocate_cash function only once. The amount of dollars to be invested should be taken from the messages array correctly.
-        """,
+        system_message= cash_allocation_prompt,
         functions= [allocate_cash]
     )
     insights_bot = ConversableAgent(
         name="insights_bot",
-        system_message="""You are a insights agent in this pipeline.
-        
-        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the context_variables.get('be_arguments')['ticker_symbols']. Generate 2 bull insights and 2 bear insights for each ticker. Even though the user has asked for multiple tickers, you must strictly call the generate_insights function only once. The context_variables will contain all the necessary information to call the generate_insights function.
-        """,
+        system_message= insight_prompt,
         functions = [generate_insights]
     )
 
