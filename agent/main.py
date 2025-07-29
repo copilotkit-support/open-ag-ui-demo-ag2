@@ -55,8 +55,11 @@ async def ag2_agent(input_data: RunAgentInput):
             encoder = EventEncoder()
             event_queue = asyncio.Queue()
 
-            def emit_event(event):
+            async def emit_event(event):
+                await asyncio.sleep(0)
+                print("emitting event")
                 event_queue.put_nowait(event)
+                await asyncio.sleep(0)
             def sample_function(numb : int):
                 print(numb)
             message_id = str(uuid.uuid4())
@@ -81,7 +84,7 @@ async def ag2_agent(input_data: RunAgentInput):
                     }
                 )
             )       
-            chat_bot.context_variables.clear()
+            # chat_bot.context_variables.clear()
             shared_context = ContextVariables(
                 data={"tool_logs": [], "messages": input_data.messages, "emitEvent": emit_event, "available_cash": input_data.state["available_cash"], "investment_portfolio" : input_data.state["investment_portfolio"], "be_arguments" : {}, "sample_function": sample_function}
             )

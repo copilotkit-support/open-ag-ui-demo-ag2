@@ -133,18 +133,24 @@ async def extract_relevant_data_from_user_prompt(
     ))
     # print(context_variables)
     index = len(context_variables.get('tool_logs')) - 1
-    context_variables.get('emitEvent')(
-        StateDeltaEvent(
-            type=EventType.STATE_DELTA,
-            delta=[
-                {
-                    "op": "replace",
-                    "path": f"/tool_logs/{index}/status",
-                    "value": "completed",
-                }
-            ],
+    print("DEBUG: About to call emitEvent")
+    try:
+        await context_variables.data['emitEvent'](
+            StateDeltaEvent(
+                type=EventType.STATE_DELTA,
+                delta=[
+                    {
+                        "op": "replace",
+                        "path": f"/tool_logs/{index}/status",
+                        "value": "completed",
+                    }
+                ],
+            )
         )
-    )
+        print("DEBUG: emitEvent called successfully")
+    except Exception as e:
+        print(f"DEBUG: Error calling emitEvent: {e}")
+        print(f"DEBUG: emitEvent function: {await context_variables.get('emitEvent')}")
     await asyncio.sleep(0)
     context_variables.get('tool_logs').append(
         {
@@ -153,7 +159,7 @@ async def extract_relevant_data_from_user_prompt(
             "status": "processing",
         }
     )
-    context_variables.get('emitEvent')(
+    await context_variables.data['emitEvent'](
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -200,7 +206,7 @@ async def gather_stock_data(context_variables: ContextVariables, tikers : list[s
     context_variables.set('be_stock_data', data["Close"])
     # print(context_variables.data,"HERERERERER")
     index = len(context_variables.get('tool_logs')) - 1
-    context_variables.get('emitEvent')(
+    await context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -220,7 +226,7 @@ async def gather_stock_data(context_variables: ContextVariables, tikers : list[s
             "status": "processing",
         }
     )
-    context_variables.get('emitEvent')(
+    await context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -519,7 +525,7 @@ async def allocate_cash(context_variables : ContextVariables, amount_of_dollars_
     )
     print(context_variables.get('investment_summary'), "datatatat")
     index = len(context_variables.get('tool_logs')) - 1
-    context_variables.get('emitEvent')(
+    await context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -540,7 +546,7 @@ async def allocate_cash(context_variables : ContextVariables, amount_of_dollars_
             "status": "processing",
         }
     )
-    context_variables.get('emitEvent')(
+    await context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -647,7 +653,7 @@ async def generate_insights(context_variables: ContextVariables, tickers : list[
     context_variables.get('messages')[-1].tool_calls[0].function.arguments = json.dumps(args_dict)
     # print(context_variables.data, "insights")
     index = len(context_variables.get('tool_logs')) - 1
-    context_variables.get('emitEvent')(
+    await context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
