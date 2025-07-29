@@ -81,11 +81,10 @@ async def ag2_agent(input_data: RunAgentInput):
                     }
                 )
             )       
-
+            chat_bot.context_variables.clear()
             shared_context = ContextVariables(
-                data={"tool_logs": [], "messages": input_data.messages, "emitEvent": emit_event, "available_cash": input_data.state["available_cash"], "investment_portfolio" : {}, "be_arguments" : {}, "sample_function": sample_function}
+                data={"tool_logs": [], "messages": input_data.messages, "emitEvent": emit_event, "available_cash": input_data.state["available_cash"], "investment_portfolio" : input_data.state["investment_portfolio"], "be_arguments" : {}, "sample_function": sample_function}
             )
-            
             pattern = DefaultPattern(
                 initial_agent=chat_bot,
                 agents=[chat_bot,stock_data_bot,cash_allocation_bot, insights_bot],

@@ -1,5 +1,5 @@
 from ag_ui.core import StateDeltaEvent, EventType
-from ag_ui.core.types import AssistantMessage
+from ag_ui.core.types import AssistantMessage, ToolMessage
 import yfinance as yf
 from dotenv import load_dotenv
 import json
@@ -7,11 +7,11 @@ import asyncio
 from datetime import datetime
 import uuid
 from pydantic import BaseModel, Field
-from autogen import ConversableAgent, LLMConfig
+from autogen import ConversableAgent, LLMConfig, UpdateSystemMessage
 from autogen.agentchat.group import (
     AgentNameTarget,
     ReplyResult,
-    ContextVariables
+    ContextVariables,
 )
 from prompts import insights_prompt
 import os
@@ -23,6 +23,7 @@ from openai import OpenAI
 load_dotenv()
 from dataclasses import dataclass, field
 from typing import List
+
 
 
 @dataclass
@@ -37,6 +38,7 @@ llm_config = LLMConfig(
     model="gpt-4o-mini",
     api_key=os.environ.get("OPENAI_API_KEY"),
     temperature=0.2,
+    parallel_tool_calls = False
 )
 
 generate_insights_tool = {
@@ -104,16 +106,23 @@ async def extract_relevant_data_from_user_prompt(
     amount_of_dollars_to_be_invested: list[int],
     to_be_added_in_portfolio: bool,
 ):
+    context_variables.set('tool_logs', [])
     tool_log_id = str(uuid.uuid4())
-    context_variables.data["sample_function"](10)
-    context_variables.data["tool_logs"].append(
+    context_variables.set('be_arguments', {
+        "ticker_symbols": ticker_symbols,
+        "investment_date": investment_date,
+        "amount_of_dollars_to_be_invested": amount_of_dollars_to_be_invested,
+        "to_be_added_in_portfolio": to_be_added_in_portfolio,
+    })
+    context_variables.get('sample_function')(10)
+    context_variables.get('tool_logs').append(
         {
             "id": tool_log_id,
             "message": "Analyzing user query",
             "status": "processing",
         }
     )
-    context_variables.data["investment_portfolio"] = json.dumps(
+    context_variables.set('investment_portfolio', json.dumps(
         [
             {
                 "ticker": ticker,
@@ -121,16 +130,16 @@ async def extract_relevant_data_from_user_prompt(
             }
             for index, ticker in enumerate(ticker_symbols)
         ]
-    )
-    context_variables.data["be_arguments"] = {
-        "ticker_symbols": ticker_symbols,
-        "investment_date": investment_date,
-        "amount_of_dollars_to_be_invested": amount_of_dollars_to_be_invested,
-        "to_be_added_in_portfolio": to_be_added_in_portfolio,
-    }
+    ))
+    # context_variables.data["be_arguments"] = {
+    #     "ticker_symbols": ticker_symbols,
+    #     "investment_date": investment_date,
+    #     "amount_of_dollars_to_be_invested": amount_of_dollars_to_be_invested,
+    #     "to_be_added_in_portfolio": to_be_added_in_portfolio,
+    # }
     # print(context_variables)
-    index = len(context_variables.data["tool_logs"]) - 1
-    context_variables.data.get('emitEvent')(
+    index = len(context_variables.get('tool_logs')) - 1
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -143,14 +152,14 @@ async def extract_relevant_data_from_user_prompt(
         )
     )
     await asyncio.sleep(0)
-    context_variables.data["tool_logs"].append(
+    context_variables.get('tool_logs').append(
         {
             "id": tool_log_id,
             "message": "Gathering stock data",
             "status": "processing",
         }
     )
-    context_variables.data.get('emitEvent')(
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -173,11 +182,11 @@ async def extract_relevant_data_from_user_prompt(
         target=AgentNameTarget("stock_data_bot"),
     )
 
-async def gather_stock_data(context_variables: ContextVariables):
+async def gather_stock_data(context_variables: ContextVariables, tikers : list[str]):
     tool_log_id = str(uuid.uuid4())
-    tickers = context_variables.data['be_arguments']["ticker_symbols"]
+    tickers = tikers
     print ('DEBUG: tickers in gather_stock_data', tickers)
-    investment_date = context_variables.data['be_arguments']["investment_date"]
+    investment_date = context_variables.get('be_arguments')["investment_date"]
     current_year = datetime.now().year
     if current_year - int(investment_date[:4]) > 4:
         print("investment date is more than 4 years ago")
@@ -194,10 +203,10 @@ async def gather_stock_data(context_variables: ContextVariables):
         start=investment_date,
         end=datetime.today().strftime("%Y-%m-%d"),
     )
-    context_variables.data["be_stock_data"] = data["Close"]
+    context_variables.set('be_stock_data', data["Close"])
     # print(context_variables.data,"HERERERERER")
-    index = len(context_variables.data["tool_logs"]) - 1
-    context_variables.data.get('emitEvent')(
+    index = len(context_variables.get('tool_logs')) - 1
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -210,14 +219,14 @@ async def gather_stock_data(context_variables: ContextVariables):
         )
     )
     await asyncio.sleep(2)
-    context_variables.data["tool_logs"].append(
+    context_variables.get('tool_logs').append(
         {
             "id": tool_log_id,
             "message": "Allocating cash",
             "status": "processing",
         }
     )
-    context_variables.data.get('emitEvent')(
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -240,18 +249,18 @@ async def gather_stock_data(context_variables: ContextVariables):
         target= AgentNameTarget('cash_allocation_bot')
     )
 
-async def allocate_cash(context_variables : ContextVariables):
-    stock_data = context_variables.data["be_stock_data"]  # DataFrame: index=date, columns=tickers
-    args = context_variables.data["be_arguments"]
+async def allocate_cash(context_variables : ContextVariables, amount_of_dollars_to_be_invested : list[int]):
+    stock_data = context_variables.get('be_stock_data')  # DataFrame: index=date, columns=tickers
+    args = context_variables.get('be_arguments')
     tickers = args["ticker_symbols"]
     print ('DEBUG: tickers in allocate_cash', tickers)
     investment_date = args["investment_date"]
-    amounts = args["amount_of_dollars_to_be_invested"]  # list, one per ticker
+    amounts = amount_of_dollars_to_be_invested  # list, one per ticker
     interval = args.get("interval_of_investment", "single_shot")
 
     # Use state['available_cash'] as a single integer (total wallet cash)
-    if context_variables.data['available_cash']:
-        total_cash = context_variables.data["available_cash"]
+    if context_variables.get('available_cash'):
+        total_cash = context_variables.get('available_cash')
     else:
         total_cash = sum(amounts)
     holdings = {ticker: 0.0 for ticker in tickers}
@@ -374,7 +383,7 @@ async def allocate_cash(context_variables : ContextVariables):
     total_value += total_cash  # Add remaining cash to total value
 
     # Store results in state
-    context_variables.data["investment_summary"] = {
+    context_variables.set('investment_summary', {
         "holdings": holdings,
         "final_prices": final_prices.to_dict(),
         "cash": total_cash,
@@ -386,8 +395,8 @@ async def allocate_cash(context_variables : ContextVariables):
         "total_invested_per_stock": total_invested_per_stock,
         "percent_allocation_per_stock": percent_allocation_per_stock,
         "percent_return_per_stock": percent_return_per_stock,
-    }
-    context_variables.data["available_cash"] = total_cash  # Update available cash in state
+    })
+    context_variables.set('available_cash', total_cash)  # Update available cash in state
 
     # --- Portfolio vs SPY performanceData logic ---
     # Get SPY prices for the same dates
@@ -468,7 +477,7 @@ async def allocate_cash(context_variables : ContextVariables):
             }
         )
 
-    context_variables.data["investment_summary"]["performanceData"] = performanceData
+    context_variables.get('investment_summary')['performanceData'] = performanceData
     # --- End performanceData logic ---
 
     # Compose summary message
@@ -496,7 +505,7 @@ async def allocate_cash(context_variables : ContextVariables):
     #     )
     # )
 
-    context_variables.data["messages"].append(
+    context_variables.get('messages').append(
         AssistantMessage(
             role="assistant",
             tool_calls=[
@@ -506,7 +515,7 @@ async def allocate_cash(context_variables : ContextVariables):
                     "function": {
                         "name": "render_standard_charts_and_table",
                         "arguments": json.dumps(
-                            {"investment_summary": context_variables.data["investment_summary"]}
+                            {"investment_summary": context_variables.get('investment_summary')}
                         ),
                     },
                 }
@@ -514,9 +523,9 @@ async def allocate_cash(context_variables : ContextVariables):
             id=str(uuid.uuid4()),
         )
     )
-    print(context_variables.data, "datatatat")
-    index = len(context_variables.data["tool_logs"]) - 1
-    context_variables.data.get('emitEvent')(
+    print(context_variables.get('investment_summary'), "datatatat")
+    index = len(context_variables.get('tool_logs')) - 1
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -530,14 +539,14 @@ async def allocate_cash(context_variables : ContextVariables):
     )
     await asyncio.sleep(0)
     tool_log_id = str(uuid.uuid4())
-    context_variables.data["tool_logs"].append(
+    context_variables.get('tool_logs').append(
         {
             "id": tool_log_id,
             "message": "Generating insights",
             "status": "processing",
         }
     )
-    context_variables.data.get('emitEvent')(
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -561,16 +570,16 @@ async def allocate_cash(context_variables : ContextVariables):
     )
 
 
-async def generate_insights(context_variables: ContextVariables):
-    args = context_variables.data["be_arguments"]
-    print ('DEBUG: tickers in generate_insights', args['ticker_symbols'])
+async def generate_insights(context_variables: ContextVariables, tickers : list[str]):
+    args = context_variables.get('be_arguments')
+    print ('DEBUG: tickers in generate_insights', tickers)
     investment_date = args.get("investment_date", '')
     model = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     response = model.chat.completions.create(
         model="gpt-4o-mini",
         messages=[  
             {"role": "system", "content": insights_prompt},
-            {"role": "user", "content": json.dumps(context_variables.data["be_arguments"]["ticker_symbols"])}
+            {"role": "user", "content": json.dumps(tickers)}
         ],
         tools=[{
     "type": "function",
@@ -631,20 +640,20 @@ async def generate_insights(context_variables: ContextVariables):
 }]
     )
 
-    args_dict = json.loads(context_variables.data["messages"][-1].tool_calls[0].function.arguments)
+    args_dict = json.loads(context_variables.get('messages')[-1].tool_calls[0].function.arguments)
 
     # Step 2: Add the insights key
     args_dict["insights"] = {
         "bullInsights": json.loads(response.choices[0].message.tool_calls[0].function.arguments)['bullInsights'],
         "bearInsights": json.loads(response.choices[0].message.tool_calls[0].function.arguments)["bearInsights"]
     }
-    args_dict["investment_portfolio"] = context_variables.data["investment_portfolio"]
+    args_dict["investment_portfolio"] = context_variables.get('investment_portfolio')
     args_dict["investment_date"] = investment_date
     # Step 3: Convert back to string
-    context_variables.data["messages"][-1].tool_calls[0].function.arguments = json.dumps(args_dict)
+    context_variables.get('messages')[-1].tool_calls[0].function.arguments = json.dumps(args_dict)
     # print(context_variables.data, "insights")
-    index = len(context_variables.data["tool_logs"]) - 1
-    context_variables.data.get('emitEvent')(
+    index = len(context_variables.get('tool_logs')) - 1
+    context_variables.get('emitEvent')(
         StateDeltaEvent(
             type=EventType.STATE_DELTA,
             delta=[
@@ -659,7 +668,7 @@ async def generate_insights(context_variables: ContextVariables):
     await asyncio.sleep(0)
     return ReplyResult(
         message="The Insights for the stocks had been generated successfully",
-        context_variables=context_variables
+        context_variables=context_variables,
     )
 
 with llm_config:
@@ -708,7 +717,7 @@ with llm_config:
         name= "cash_allocation_bot",
         system_message="""You are a cash allocation agent in this pipeline.
         
-        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns. Even though the user has asked for multiple tickers, you must strictly call the allocate_cash function only once. The context_variables will contain all the necessary information to call the allocate_cash function.
+        Your specific role is to use the the allocate_cash function to perform some mathematical calculations to calculate your stock portfolio returns. Even though the user has asked for multiple tickers, you must strictly call the allocate_cash function only once. The amount of dollars to be invested should be taken from the messages array correctly.
         """,
         functions= [allocate_cash]
     )
@@ -716,7 +725,7 @@ with llm_config:
         name="insights_bot",
         system_message="""You are a insights agent in this pipeline.
         
-        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the context_variables.data['be_arguments']['ticker_symbols']. Generate 2 bull insights and 2 bear insights for each ticker. Even though the user has asked for multiple tickers, you must strictly call the generate_insights function only once. The context_variables will contain all the necessary information to call the generate_insights function.
+        Your specific role is to use the generate_insights function to generate insights for the list of tickers in the context_variables.get('be_arguments')['ticker_symbols']. Generate 2 bull insights and 2 bear insights for each ticker. Even though the user has asked for multiple tickers, you must strictly call the generate_insights function only once. The context_variables will contain all the necessary information to call the generate_insights function.
         """,
         functions = [generate_insights]
     )

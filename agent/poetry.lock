@@ -17,14 +17,14 @@ pydantic = ">=2.11.2,<3.0.0"
 
 [[package]]
 name = "ag2"
-version = "0.9.6"
+version = "0.9.7"
 description = "A programming framework for agentic AI"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
 files = [
-    {file = "ag2-0.9.6-py3-none-any.whl", hash = "sha256:aa632dddec50384ce2df23a5189ef534cdc92133ccf0bd512feac25e536cb234"},
-    {file = "ag2-0.9.6.tar.gz", hash = "sha256:d6f7812b1a49654d14113fa3c13ccb593115dee1193744ca428d7178d2b32090"},
+    {file = "ag2-0.9.7-py3-none-any.whl", hash = "sha256:19f75db9abe16a19270d26f74553cd6ad5c10dc101aaa711831e4061e5de49c1"},
+    {file = "ag2-0.9.7.tar.gz", hash = "sha256:f1fb2105bec3caa0696c7aa10bedc4b6b983fcf54efac4ca51d32c75d66c0892"},
 ]
 
 [package.dependencies]
