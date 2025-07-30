@@ -1,5 +1,6 @@
 # open-ag-ui-demo-ag2
 
+![Demo](assets/example.gif)
 A demo project with a Next.js frontend and a FastAPI-based backend agent for stock analysis and chat.
 
 ---
