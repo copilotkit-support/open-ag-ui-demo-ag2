@@ -176,15 +176,8 @@ async def extract_relevant_data_from_user_prompt(
         )
     )    
     await asyncio.sleep(0)
-    return ReplyResult(
-        message="User's query has been processed and relevant data has been extracted",
-        context_variables=context_variables,
-        target=AgentNameTarget("stock_data_bot"),
-    )
-
-async def gather_stock_data(context_variables: ContextVariables, tikers : list[str]):
     tool_log_id = str(uuid.uuid4())
-    tickers = tikers
+    tickers = context_variables.get('be_arguments')["ticker_symbols"]
     print ('DEBUG: tickers in gather_stock_data', tickers)
     investment_date = context_variables.get('be_arguments')["investment_date"]
     current_year = datetime.now().year
@@ -243,13 +236,6 @@ async def gather_stock_data(context_variables: ContextVariables, tikers : list[s
         )
     )    
     await asyncio.sleep(2)
-    return ReplyResult(
-        message="Stock data had been gathered successfully",
-        context_variables=context_variables,
-        target= AgentNameTarget('cash_allocation_bot')
-    )
-
-async def allocate_cash(context_variables : ContextVariables, amount_of_dollars_to_be_invested : list[int]):
     stock_data = context_variables.get('be_stock_data')  # DataFrame: index=date, columns=tickers
     args = context_variables.get('be_arguments')
     tickers = args["ticker_symbols"]
@@ -563,14 +549,6 @@ async def allocate_cash(context_variables : ContextVariables, amount_of_dollars_
         )
     )    
     await asyncio.sleep(0)
-    return ReplyResult(
-        message="Cash had been allocated successfully and returns had been calculated",
-        context_variables=context_variables,
-        target=AgentNameTarget("insights_bot")
-    )
-
-
-async def generate_insights(context_variables: ContextVariables, tickers : list[str]):
     args = context_variables.get('be_arguments')
     print ('DEBUG: tickers in generate_insights', tickers)
     investment_date = args.get("investment_date", '')
@@ -667,29 +645,14 @@ async def generate_insights(context_variables: ContextVariables, tickers : list[
     )
     await asyncio.sleep(0)
     return ReplyResult(
-        message="The Insights for the stocks had been generated successfully",
+        message="User's query has been processed and relevant data extraction is DONE!",
         context_variables=context_variables,
     )
+
 
 with llm_config:
     chat_bot = ConversableAgent(
         name="chat_bot",
         system_message= chat_prompt,
-        functions=[extract_relevant_data_from_user_prompt],
+        functions=[extract_relevant_data_from_user_prompt]
     )
-    stock_data_bot = ConversableAgent(
-        name="stock_data_bot",
-        system_message= stock_prompt,
-        functions = [gather_stock_data]
-    )
-    cash_allocation_bot = ConversableAgent(
-        name= "cash_allocation_bot",
-        system_message= cash_allocation_prompt,
-        functions= [allocate_cash]
-    )
-    insights_bot = ConversableAgent(
-        name="insights_bot",
-        system_message= insight_prompt,
-        functions = [generate_insights]
-    )
-
