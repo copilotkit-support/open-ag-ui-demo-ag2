@@ -23,7 +23,7 @@ from ag_ui.encoder import EventEncoder
 from copilotkit import CopilotKitState
 from autogen.agentchat import a_initiate_group_chat, initiate_group_chat
 from autogen.agentchat.group.patterns import DefaultPattern
-from stock_analysis import chat_bot, cash_allocation_bot, stock_data_bot, insights_bot
+from stock_analysis import chat_bot
 from autogen.agentchat.group import ContextVariables
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -56,10 +56,7 @@ async def ag2_agent(input_data: RunAgentInput):
             event_queue = asyncio.Queue()
 
             async def emit_event(event):
-                await asyncio.sleep(0)
-                print("emitting event")
                 event_queue.put_nowait(event)
-                await asyncio.sleep(0)
             def sample_function(numb : int):
                 print(numb)
             message_id = str(uuid.uuid4())
@@ -90,11 +87,12 @@ async def ag2_agent(input_data: RunAgentInput):
             )
             pattern = DefaultPattern(
                 initial_agent=chat_bot,
-                agents=[chat_bot,stock_data_bot,cash_allocation_bot, insights_bot],
+                agents=[chat_bot],
+                # agents=[chat_bot,stock_data_bot,cash_allocation_bot, insights_bot],
                 # group_manager_args={"emit_event": emit_event},
                 context_variables=shared_context
             )
-
+            
             if input_data.messages[-1].role == "user":
                 try:
                     tool_log_id = str(uuid.uuid4())
@@ -122,9 +120,10 @@ async def ag2_agent(input_data: RunAgentInput):
                     )
                     while True:
                         try:
-                            event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                            event = await asyncio.wait_for(event_queue.get(), timeout=1)
                             yield encoder.encode(event)
-                        except asyncio.TimeoutError:
+                        except asyncio.TimeoutError as e:
+                            print(e)
                             # Check if the agent is done
                             if agent_task.done():
                                 break
