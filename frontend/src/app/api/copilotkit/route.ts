@@ -8,7 +8,8 @@ import { HttpAgent } from "@ag-ui/client";
 
 
 const ag2Agent = new HttpAgent({
-  url: process.env.NEXT_PUBLIC_AG2_URL || "http://0.0.0.0:8000/ag2-agent",
+  // url: process.env.NEXT_PUBLIC_AG2_URL || "http://0.0.0.0:8000/ag2-agent",
+  url: "http://0.0.0.0:8000/ag2-agent",
 });
 const serviceAdapter = new OpenAIAdapter()
 const runtime = new CopilotRuntime({
